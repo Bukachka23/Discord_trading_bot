@@ -1,7 +1,7 @@
+import logging
 import math
 import os
-import logging
-from typing import Any, Optional, Dict
+from typing import Any
 
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
@@ -28,8 +28,8 @@ class SpotClient:
             logging.error(f"Error retrieving USDT balance: {e}")
             return 0.0
 
-    def place_spot_order(self, symbol: str, price: float, quantity: float, order_type: OrderType = OrderType.LIMIT) -> (
-            Optional)[Dict[str, Any]]:
+    def place_spot_order(self, symbol: str, price: float, quantity: float, order_type: OrderType = OrderType.LIMIT) \
+            -> dict[str, Any] | None:
         """Place a spot order on Binance."""
         try:
             symbol_info = self.client.get_symbol_info(symbol)
@@ -97,7 +97,7 @@ class SpotClient:
         except BinanceAPIException as e:
             logging.error(f"Error canceling orders: {e}")
 
-    def close_order_at_profit(self, symbol: str, quantity: float, price: float) -> Optional[Dict[str, Any]]:
+    def close_order_at_profit(self, symbol: str, quantity: float, price: float) -> dict[str, Any] | None:
         """Close an order at a specified profit price."""
         try:
             order = self.client.order_limit_sell(

@@ -1,7 +1,8 @@
-import os
 import logging
+import os
 
 import discord
+from aiohttp import web
 from discord.ext import commands
 from dotenv import load_dotenv
 
@@ -14,26 +15,31 @@ from variables.constants import EnvVariables, OrderType, TradingConstants
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
-class DiscordBot:
-    def __init__(self):
-        load_dotenv()
-        self.token = os.getenv(EnvVariables.DISCORD_BOT_TOKEN.value)
-        self.intents = discord.Intents.default()
-        self.intents.message_content = True
-        self.bot = commands.Bot(command_prefix='$', intents=self.intents)
+class MyBot(commands.Bot):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self.future_client = FutureClient()
         self.spot_client = SpotClient()
+        self.app = web.Application()
+        self.app.router.add_get('/health', self.health_check)
+        self.runner = web.AppRunner(self.app)
 
-        self.bot.event(self.on_ready)
-        self.bot.event(self.on_message)
+    async def setup_hook(self):
+        await self.start_health_check_server()
 
-    async def on_ready(self) -> None:
-        """Event handler for when the bot is ready."""
-        logging.info(f'{self.bot.user.name} has connected to Discord!')
+    async def start_health_check_server(self):
+        await self.runner.setup()
+        site = web.TCPSite(self.runner, '0.0.0.0', 8080)
+        await site.start()
 
-    async def on_message(self, message: discord.Message) -> None:
-        """Event handler for when a message is received."""
-        if message.author == self.bot.user:
+    async def health_check(self, _):
+        return web.json_response({'status': 'ok'})
+
+    async def on_ready(self):
+        logging.info(f'{self.user.name} has connected to Discord!')
+
+    async def on_message(self, message: discord.Message):
+        if message.author == self.user:
             return
 
         if message.content.startswith('$'):
@@ -42,9 +48,9 @@ class DiscordBot:
             else:
                 await self.handle_spot_message(message)
 
-        await self.bot.process_commands(message)
+        await self.process_commands(message)
 
-    async def handle_future_message(self, message: discord.Message) -> None:
+    async def handle_future_message(self, message: discord.Message):
         try:
             command, symbol, side, entry_price, stop_loss_price, target_price = parse_future_message(message.content)
 
@@ -83,7 +89,7 @@ class DiscordBot:
             logging.error(f"Error processing future message: {e}")
             await message.channel.send(f"Error processing message: {str(e)}")
 
-    async def handle_spot_message(self, message: discord.Message) -> None:
+    async def handle_spot_message(self, message: discord.Message):
         try:
             parsed_info = parse_spot_message(message.content)
 
@@ -111,10 +117,11 @@ class DiscordBot:
             logging.error(f"Error processing spot message: {e}")
             await message.channel.send(f"Error processing message: {str(e)}")
 
-    def run(self) -> None:
-        self.bot.run(self.token)
-
 
 if __name__ == "__main__":
-    bot = DiscordBot()
-    bot.run()
+    load_dotenv()
+    token = os.getenv(EnvVariables.DISCORD_BOT_TOKEN.value)
+    intents = discord.Intents.default()
+    intents.message_content = True
+    bot = MyBot(command_prefix='$', intents=intents)
+    bot.run(token)

@@ -1,11 +1,10 @@
 import re
-from typing import Tuple, Optional
 
 from binance.enums import SIDE_BUY, SIDE_SELL
 
 
 def parse_future_message(message: str) -> (
-        Tuple)[str, Optional[str], Optional[str], Optional[float], Optional[float], Optional[float]]:
+        tuple)[str, str | None, str | None, float | None, float | None, float | None]:
     """
     Parse the Discord message to extract trading signals and commands.
     """

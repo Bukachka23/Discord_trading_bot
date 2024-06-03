@@ -1,7 +1,7 @@
 import logging
 import os
 from decimal import ROUND_DOWN, Decimal
-from typing import Any, Optional, Dict
+from typing import Any
 
 from binance.client import Client
 from dotenv import load_dotenv
@@ -40,7 +40,7 @@ class FutureClient:
         except Exception as e:
             logging.error(f"Error setting leverage for {symbol}: {e}")
 
-    def get_symbol_info(self, symbol: str) -> Optional[Dict[str, Any]]:
+    def get_symbol_info(self, symbol: str) -> dict[str, Any] | None:
         """
         Retrieve symbol information from the exchange.
         """

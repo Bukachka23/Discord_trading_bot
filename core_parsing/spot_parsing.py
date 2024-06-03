@@ -1,8 +1,8 @@
 import re
-from typing import Dict, Any
+from typing import Any
 
 
-def parse_spot_message(message: str) -> Dict[str, Any]:
+def parse_spot_message(message: str) -> dict[str, Any]:
     """
     Parse the Discord message to extract spot trading signals.
     """
