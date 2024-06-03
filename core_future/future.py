@@ -1,11 +1,14 @@
 import logging
 import os
 from decimal import ROUND_DOWN, Decimal
-from typing import Optional, Dict, Any
+from typing import Any
+
 from binance.client import Client
 from dotenv import load_dotenv
 
 from variables.constants import TradingConstants
+
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 class FutureClient:
@@ -31,7 +34,7 @@ class FutureClient:
         """
         self.client.futures_change_leverage(symbol=symbol, leverage=leverage)
 
-    def get_symbol_info(self, symbol: str) -> Optional[Dict[str, Any]]:
+    def get_symbol_info(self, symbol: str) -> dict[str, Any] | None:
         """
         Retrieve symbol information from the exchange.
         """
@@ -40,6 +43,18 @@ class FutureClient:
             if item['symbol'] == symbol:
                 return item
         return None
+
+    def __get_trimmed_quantity(self, quantity: Decimal, step_size: Decimal) -> Decimal:
+        """
+        Truncate the quantity to the correct precision based on step size.
+        """
+        return (quantity // step_size) * step_size
+
+    def __get_trimmed_price(self, price: Decimal, tick_size: Decimal) -> Decimal:
+        """
+        Truncate the price to the correct precision based on tick size.
+        """
+        return (price // tick_size) * tick_size
 
     def calculate_quantity(self, usdt_balance: float, entry_price: float, leverage: int, symbol: str) -> float:
         """
@@ -55,7 +70,11 @@ class FutureClient:
                 quantity_decimal = Decimal(
                     (usdt_balance * TradingConstants.RISK_PERCENTAGE.value * leverage) / entry_price).quantize(
                     Decimal('.' + '0' * max_precision), rounding=ROUND_DOWN)
-                return float(quantity_decimal)
+
+                # Ensure the quantity meets the minimum increment requirement
+                min_qty = Decimal(lot_size_filter['minQty'])
+                adjusted_quantity = max(min_qty, quantity_decimal)
+                return float(self.__get_trimmed_quantity(adjusted_quantity, step_size))
         return 0.0
 
     def place_order(self, symbol: str, side: str,
@@ -75,8 +94,23 @@ class FutureClient:
         if estimated_cost > available_margin:
             logging.error("Insufficient margin to place order.")
             return
+
+        symbol_info = self.get_symbol_info(symbol)
+        if not symbol_info:
+            logging.error(f"Symbol info not found for {symbol}")
+            return
+
+        price_filter = next((f for f in symbol_info['filters'] if f['filterType'] == 'PRICE_FILTER'), None)
+        if not price_filter:
+            logging.error(f"Price filter not found for {symbol}")
+            return
+
+        tick_size = Decimal(price_filter['tickSize'])
+        stop_loss = self.__get_trimmed_price(Decimal(stop_loss), tick_size)
+        target = self.__get_trimmed_price(Decimal(target), tick_size)
+
         try:
-            print(f"Placing market order: symbol={symbol}, side={side}, quantity={quantity}")
+            logging.debug(f"Placing market order: symbol={symbol}, side={side}, quantity={quantity}")
             order = self.client.futures_create_order(
                 symbol=symbol,
                 side=side,
@@ -86,25 +120,38 @@ class FutureClient:
             logging.info(f"Order placed: {order}")
         except Exception as e:
             logging.error(f"Failed to place order: {e}")
+            return
 
-        stop_loss_order = self.client.futures_create_order(
-            symbol=symbol,
-            side='SELL' if side == 'BUY' else 'BUY',
-            type='STOP_MARKET',
-            stopPrice=stop_loss,
-            quantity=quantity
-        )
-        print(f"Stop loss order placed: {stop_loss_order}")
+        try:
+            logging.debug(
+                f"Placing stop loss order: symbol={symbol}, side={'SELL' if side == 'BUY' else 'BUY'}, "
+                f"stopPrice={stop_loss}, quantity={quantity}")
+            stop_loss_order = self.client.futures_create_order(
+                symbol=symbol,
+                side='SELL' if side == 'BUY' else 'BUY',
+                type='STOP_MARKET',
+                stopPrice=str(stop_loss),
+                quantity=quantity
+            )
+            logging.info(f"Stop loss order placed: {stop_loss_order}")
+        except Exception as e:
+            logging.error(f"Failed to place stop loss order: {e}")
 
-        take_profit_order = self.client.futures_create_order(
-            symbol=symbol,
-            side='SELL' if side == 'BUY' else 'BUY',
-            type='LIMIT',
-            price=target,
-            quantity=quantity,
-            timeInForce='GTC'
-        )
-        print(f"Take profit order placed: {take_profit_order}")
+        try:
+            logging.debug(
+                f"Placing take profit order: symbol={symbol}, side={'SELL' if side == 'BUY' else 'BUY'}, "
+                f"price={target}, quantity={quantity}")
+            take_profit_order = self.client.futures_create_order(
+                symbol=symbol,
+                side='SELL' if side == 'BUY' else 'BUY',
+                type='LIMIT',
+                price=str(target),
+                quantity=quantity,
+                timeInForce='GTC'
+            )
+            logging.info(f"Take profit order placed: {take_profit_order}")
+        except Exception as e:
+            logging.error(f"Failed to place take profit order: {e}")
 
     def cancel_open_futures_orders(self, symbol: str) -> None:
         """
@@ -118,7 +165,7 @@ class FutureClient:
         except Exception as e:
             logging.error(f"Failed to cancel open orders: {e}")
 
-    def close_order_in_profit(self, symbol: str) -> None:
+    def close_order_in_profit(self, symbol):
         """
         Close all open positions for a given symbol.
         """
@@ -138,7 +185,7 @@ class FutureClient:
         except Exception as e:
             logging.error(f"Failed to close positions: {e}")
 
-    def change_stop_loss(self, symbol: str, new_stop_loss: float) -> None:
+    def change_stop_loss(self, symbol, new_stop_loss):
         """
         Change the stop loss for an open position.
         """

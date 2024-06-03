@@ -1,8 +1,7 @@
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-from MAIN.app import place_order, cancel_order, parse_message
-
+from MAIN.app import cancel_order, parse_message, place_order
 
 
 class TestParseMessage(unittest.TestCase):
