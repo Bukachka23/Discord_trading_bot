@@ -1,7 +1,7 @@
 import logging
 import os
 from decimal import ROUND_DOWN, Decimal
-from typing import Any
+from typing import Any, Optional, Dict
 
 from binance.client import Client
 from dotenv import load_dotenv
@@ -22,26 +22,35 @@ class FutureClient:
         """
         Retrieve the account balance in USDT.
         """
-        balance = self.client.futures_account_balance()
-        for asset in balance:
-            if asset['asset'] == 'USDT':
-                return float(asset['balance'])
+        try:
+            balance = self.client.futures_account_balance()
+            for asset in balance:
+                if asset['asset'] == 'USDT':
+                    return float(asset['balance'])
+        except Exception as e:
+            logging.error(f"Error retrieving account balance: {e}")
         return 0.0
 
     def set_leverage(self, symbol: str, leverage: int) -> None:
         """
         Set the leverage for a given symbol.
         """
-        self.client.futures_change_leverage(symbol=symbol, leverage=leverage)
+        try:
+            self.client.futures_change_leverage(symbol=symbol, leverage=leverage)
+        except Exception as e:
+            logging.error(f"Error setting leverage for {symbol}: {e}")
 
-    def get_symbol_info(self, symbol: str) -> dict[str, Any] | None:
+    def get_symbol_info(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
         Retrieve symbol information from the exchange.
         """
-        info = self.client.futures_exchange_info()
-        for item in info['symbols']:
-            if item['symbol'] == symbol:
-                return item
+        try:
+            info = self.client.futures_exchange_info()
+            for item in info['symbols']:
+                if item['symbol'] == symbol:
+                    return item
+        except Exception as e:
+            logging.error(f"Error retrieving symbol info for {symbol}: {e}")
         return None
 
     def __get_trimmed_quantity(self, quantity: Decimal, step_size: Decimal) -> Decimal:
@@ -82,34 +91,33 @@ class FutureClient:
         """
         Place a futures order with stop loss and take profit.
         """
-        account_info = self.client.futures_account()
-        available_margin = float(account_info['availableBalance'])
-        logging.info(f"Available Margin: {available_margin} USDT")
-        print(f"Available margin: {available_margin}")
-
-        estimated_cost = quantity * entry_price
-        required_margin = estimated_cost / TradingConstants.LEVERAGE.value
-        print(f"Required margin: {required_margin}")
-
-        if estimated_cost > available_margin:
-            logging.error("Insufficient margin to place order.")
-            return
-
-        symbol_info = self.get_symbol_info(symbol)
-        if not symbol_info:
-            logging.error(f"Symbol info not found for {symbol}")
-            return
-
-        price_filter = next((f for f in symbol_info['filters'] if f['filterType'] == 'PRICE_FILTER'), None)
-        if not price_filter:
-            logging.error(f"Price filter not found for {symbol}")
-            return
-
-        tick_size = Decimal(price_filter['tickSize'])
-        stop_loss = self.__get_trimmed_price(Decimal(stop_loss), tick_size)
-        target = self.__get_trimmed_price(Decimal(target), tick_size)
-
         try:
+            account_info = self.client.futures_account()
+            available_margin = float(account_info['availableBalance'])
+            logging.info(f"Available Margin: {available_margin} USDT")
+
+            estimated_cost = quantity * entry_price
+            required_margin = estimated_cost / TradingConstants.LEVERAGE.value
+            print(f"Required margin: {required_margin}")
+
+            if estimated_cost > available_margin:
+                logging.error("Insufficient margin to place order.")
+                return
+
+            symbol_info = self.get_symbol_info(symbol)
+            if not symbol_info:
+                logging.error(f"Symbol info not found for {symbol}")
+                return
+
+            price_filter = next((f for f in symbol_info['filters'] if f['filterType'] == 'PRICE_FILTER'), None)
+            if not price_filter:
+                logging.error(f"Price filter not found for {symbol}")
+                return
+
+            tick_size = Decimal(price_filter['tickSize'])
+            stop_loss = self.__get_trimmed_price(Decimal(stop_loss), tick_size)
+            target = self.__get_trimmed_price(Decimal(target), tick_size)
+
             logging.debug(f"Placing market order: symbol={symbol}, side={side}, quantity={quantity}")
             order = self.client.futures_create_order(
                 symbol=symbol,
@@ -118,11 +126,7 @@ class FutureClient:
                 quantity=quantity
             )
             logging.info(f"Order placed: {order}")
-        except Exception as e:
-            logging.error(f"Failed to place order: {e}")
-            return
 
-        try:
             logging.debug(
                 f"Placing stop loss order: symbol={symbol}, side={'SELL' if side == 'BUY' else 'BUY'}, "
                 f"stopPrice={stop_loss}, quantity={quantity}")
@@ -134,10 +138,7 @@ class FutureClient:
                 quantity=quantity
             )
             logging.info(f"Stop loss order placed: {stop_loss_order}")
-        except Exception as e:
-            logging.error(f"Failed to place stop loss order: {e}")
 
-        try:
             logging.debug(
                 f"Placing take profit order: symbol={symbol}, side={'SELL' if side == 'BUY' else 'BUY'}, "
                 f"price={target}, quantity={quantity}")
@@ -150,8 +151,9 @@ class FutureClient:
                 timeInForce='GTC'
             )
             logging.info(f"Take profit order placed: {take_profit_order}")
+
         except Exception as e:
-            logging.error(f"Failed to place take profit order: {e}")
+            logging.error(f"Failed to place order: {e}")
 
     def cancel_open_futures_orders(self, symbol: str) -> None:
         """
@@ -165,7 +167,7 @@ class FutureClient:
         except Exception as e:
             logging.error(f"Failed to cancel open orders: {e}")
 
-    def close_order_in_profit(self, symbol):
+    def close_order_in_profit(self, symbol: str) -> None:
         """
         Close all open positions for a given symbol.
         """
@@ -185,7 +187,7 @@ class FutureClient:
         except Exception as e:
             logging.error(f"Failed to close positions: {e}")
 
-    def change_stop_loss(self, symbol, new_stop_loss):
+    def change_stop_loss(self, symbol: str, new_stop_loss: float) -> None:
         """
         Change the stop loss for an open position.
         """
@@ -199,7 +201,7 @@ class FutureClient:
                         symbol=symbol,
                         side=side,
                         type='STOP_MARKET',
-                        stopPrice=new_stop_loss,
+                        stopPrice=str(new_stop_loss),
                         quantity=quantity
                     )
             logging.info(f"Changed stop loss for {symbol} to {new_stop_loss}")

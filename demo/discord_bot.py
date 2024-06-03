@@ -1,4 +1,5 @@
 import os
+import logging
 
 import discord
 from discord.ext import commands
@@ -9,6 +10,8 @@ from core_parsing.future_parsing import parse_future_message
 from core_parsing.spot_parsing import parse_spot_message
 from core_spot.spot import SpotClient
 from variables.constants import EnvVariables, OrderType, TradingConstants
+
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 class DiscordBot:
@@ -26,7 +29,7 @@ class DiscordBot:
 
     async def on_ready(self) -> None:
         """Event handler for when the bot is ready."""
-        print(f'{self.bot.user.name} has connected to Discord!')
+        logging.info(f'{self.bot.user.name} has connected to Discord!')
 
     async def on_message(self, message: discord.Message) -> None:
         """Event handler for when a message is received."""
@@ -63,12 +66,12 @@ class DiscordBot:
                 portfolio_percentage = TradingConstants.RISK_PERCENTAGE.value
 
                 total_balance = self.future_client.get_account_balance()
-                print(f"Total balance: {total_balance}")
-                print(f"Trade amount: {total_balance * portfolio_percentage}")
+                logging.info(f"Total balance: {total_balance}")
+                logging.info(f"Trade amount: {total_balance * portfolio_percentage}")
 
                 quantity = self.future_client.calculate_quantity(total_balance, entry_price, leverage, symbol)
-                print(f"Calculated quantity: {quantity}")
-                print(
+                logging.info(f"Calculated quantity: {quantity}")
+                logging.info(
                     f"Entry price: {entry_price}, Stop loss price: {stop_loss_price}, Target price: {target_price}")
 
                 self.future_client.set_leverage(symbol, leverage)
@@ -77,6 +80,7 @@ class DiscordBot:
                 await message.channel.send(f"Placed futures order for {symbol}")
 
         except Exception as e:
+            logging.error(f"Error processing future message: {e}")
             await message.channel.send(f"Error processing message: {str(e)}")
 
     async def handle_spot_message(self, message: discord.Message) -> None:
@@ -104,6 +108,7 @@ class DiscordBot:
                     await message.channel.send(f"Placed sell order: {close_order}")
 
         except Exception as e:
+            logging.error(f"Error processing spot message: {e}")
             await message.channel.send(f"Error processing message: {str(e)}")
 
     def run(self) -> None:
